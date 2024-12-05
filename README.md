@@ -1,4 +1,4 @@
-本仓库包含ReChorus框架源代码，SimRec源代码以及将它们组合到一起的代码ReChorus+SimRec
+本仓库包含ReChorus框架源代码，以及将SimRec源代码组合到一起的代码ReChorus+SimRec
 环境变量与ReChorus相同
 python==3.10.4
 torch==1.12.1
@@ -12,4 +12,3 @@ scikit-learn==1.1.3
 scipy==1.7.3
 pickle
 yaml
-log中包含了SimRec模型和ReChorus本身框架支持的模型，运行的模型在ReChorus+SimRec，详情请参考总结的pdf
