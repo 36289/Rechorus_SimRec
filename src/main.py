@@ -7,6 +7,8 @@ import logging
 import argparse
 import pandas as pd
 import torch
+import numpy as np
+from plot_metrics_comparison import plot_metrics_comparison
 
 from helpers import *
 from models.general import *
@@ -96,11 +98,11 @@ def main():
 
 
 def save_rec_results(dataset, runner, topk):
-	model_name = '{0}{1}'.format(init_args.model_name,init_args.model_mode)
-	result_path = os.path.join(runner.log_path,runner.save_appendix, 'rec-{}-{}.csv'.format(model_name,dataset.phase))
+	model_name = '{0}{1}'.format(init_args.model_name, init_args.model_mode)
+	result_path = os.path.join(runner.log_path, runner.save_appendix, 'rec-{}-{}.csv'.format(model_name, dataset.phase))
 	utils.check_dir(result_path)
 
-	if init_args.model_mode == 'CTR': # CTR task 
+	if init_args.model_mode == 'CTR':
 		logging.info('Saving CTR prediction results to: {}'.format(result_path))
 		predictions, labels = runner.predict(dataset)
 		users, items= list(), list()
@@ -114,9 +116,33 @@ def save_rec_results(dataset, runner, topk):
 		rec_df['pCTR'] = predictions
 		rec_df['label'] = labels
 		rec_df.to_csv(result_path, sep=args.sep, index=False)
-	elif init_args.model_mode in ['TopK','']: # TopK Ranking task
+	elif init_args.model_mode in ['TopK', '']:
 		logging.info('Saving top-{} recommendation results to: {}'.format(topk, result_path))
 		predictions = runner.predict(dataset)  # n_users, n_candidates
+		
+		# 计算 Recall@K 和 NDCG@K
+		k_values = range(2, 21, 2)
+		recall_values = []
+		ndcg_values = []
+		for k in k_values:
+			recall = calculate_recall_at_k(predictions, dataset, k)
+			ndcg = calculate_ndcg_at_k(predictions, dataset, k)
+			recall_values.append(recall)
+			ndcg_values.append(ndcg)
+			
+		# 计算分数分布
+		score_dist = calculate_score_distribution(predictions)
+		
+		# 绘制图表
+		metrics = {
+			'recall': {model_name: recall_values},
+			'ndcg': {model_name: ndcg_values},
+			'score_dist': {model_name: score_dist}
+		}
+		
+		plot_path = os.path.join(runner.log_path, runner.save_appendix, 'metrics-{}-{}.png'.format(model_name, dataset.phase))
+		plot_metrics_comparison(metrics, dataset.phase, plot_path)
+		
 		users, rec_items, rec_predictions = list(), list(), list()
 		for i in range(len(dataset)):
 			info = dataset[i]
@@ -130,7 +156,7 @@ def save_rec_results(dataset, runner, topk):
 		rec_df['rec_items'] = rec_items
 		rec_df['rec_predictions'] = rec_predictions
 		rec_df.to_csv(result_path, sep=args.sep, index=False)
-	elif init_args.model_mode in ['Impression','General','Sequential']: # List-wise reranking task: Impression is reranking task for general/seq baseranker. General/Sequential is reranking task for rerankers with general/sequential input.
+	elif init_args.model_mode in ['Impression', 'General', 'Sequential']:
 		logging.info('Saving all recommendation results to: {}'.format(result_path))
 		predictions = runner.predict(dataset)  # n_users, n_candidates
 		users, pos_items, pos_predictions, neg_items, neg_predictions= list(), list(), list(), list(), list()
@@ -151,6 +177,59 @@ def save_rec_results(dataset, runner, topk):
 	else:
 		return 0
 	logging.info("{} Prediction results saved!".format(dataset.phase))
+
+# 添加辅助函数
+def calculate_recall_at_k(predictions, dataset, k):
+	"""计算 Recall@K"""
+	# 获取每个用户的实际正样本项目
+	actual_items = dataset.get_user_pos_items()
+	
+	# 对每个用户的预测进行排序，获取 top-k 推荐
+	_, indices = torch.topk(predictions, k, dim=1)
+	recommended_items = indices.cpu().numpy()
+	
+	recalls = []
+	for i, items in enumerate(actual_items):
+		intersection = set(recommended_items[i]) & set(items)
+		recall = len(intersection) / len(items) if items else 0
+		recalls.append(recall)
+	
+	return np.mean(recalls)
+
+def calculate_ndcg_at_k(predictions, dataset, k):
+	"""计算 NDCG@K"""
+	# 获取每个用户的实际正样本项目
+	actual_items = dataset.get_user_pos_items()
+	
+	# 对每个用户的预测进行排序，获取 top-k 推荐
+	_, indices = torch.topk(predictions, k, dim=1)
+	recommended_items = indices.cpu().numpy()
+	
+	ndcgs = []
+	for i, items in enumerate(actual_items):
+		if not items:
+			continue
+			
+		dcg = 0
+		idcg = 0
+		for j, item in enumerate(recommended_items[i]):
+			if item in items:
+				dcg += 1 / np.log2(j + 2)
+		
+		for j in range(min(len(items), k)):
+			idcg += 1 / np.log2(j + 2)
+			
+		ndcg = dcg / idcg if idcg > 0 else 0
+		ndcgs.append(ndcg)
+	
+	return np.mean(ndcgs)
+
+def calculate_score_distribution(predictions):
+	"""计算预测分数的分布"""
+	scores = predictions.cpu().numpy().flatten()
+	bins = [0, 0.2, 0.8, 1.0]
+	hist, _ = np.histogram(scores, bins=bins, density=True)
+	return hist * 100  # 转换为百分比
 
 if __name__ == '__main__':
 	init_parser = argparse.ArgumentParser(description='Model')
@@ -194,3 +273,4 @@ if __name__ == '__main__':
 	logging.info(init_args)
 
 	main()
+
