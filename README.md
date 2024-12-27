@@ -33,7 +33,7 @@ SimRec 是一个基于知识蒸馏的推荐模型，使用 GNN 作为教师模�
   - `BaseContextModel.py`: inherited from BaseModel
   - `BaseImpressionModel.py`: inherited from BaseModel
   - `SimRec.py`: our implementation
-  - `runners\`
+- `runners\`
   - `__init__.py`:
   - `SimRecRunner.py`: inherited from BaseRunner
 - `utils\`
